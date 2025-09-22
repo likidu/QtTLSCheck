@@ -3,8 +3,6 @@ param(
     [string]$MakeBin = 'C:\Symbian\QtSDK\mingw\bin',
     [ValidateSet('Debug','Release')][string]$Config = 'Debug',
     [switch]$Clean,
-    # When set, also copy Qt plugins (bearer, imageformats) from the SDK. Off by default to avoid mismatch.
-    [switch]$CopyPlugins,
     # Use Qt Simulator runtime files directly without staging them into the build directory.
     [switch]$UseQtRuntime
 )
@@ -44,10 +42,6 @@ $make = Join-Path $MakeBin 'mingw32-make.exe'
 if (-not (Test-Path $make)) {
     Write-Err ("mingw32-make.exe not found at {0}. Pass -MakeBin to point to your MinGW bin." -f $make)
     exit 4
-}
-
-if ($UseQtRuntime -and $CopyPlugins) {
-    Write-Warn 'Ignoring -CopyPlugins because -UseQtRuntime was supplied.'
 }
 
 if ($Clean) {
@@ -103,27 +97,6 @@ try {
                 $srcDll = Join-Path $QtBin $dll
                 if (Test-Path $srcDll) {
                     Copy-Item -LiteralPath $srcDll -Destination $buildDir -Force
-                }
-            }
-        }
-
-        # Constrain plugin lookup to local folder
-        $qtConfContent = "[Paths]`nPlugins = plugins`n"
-        Set-Content -LiteralPath (Join-Path $buildDir 'qt.conf') -Value $qtConfContent -Encoding ASCII
-
-        # Optionally copy a minimal set of plugins (bearer, imageformats) if available
-        if ($CopyPlugins) {
-            $qtPluginsDir = Join-Path (Split-Path (Split-Path $QtBin -Parent) -Parent) 'plugins'
-            if (Test-Path $qtPluginsDir) {
-                foreach ($sub in @('bearer','imageformats')) {
-                    $srcDir = Join-Path $qtPluginsDir $sub
-                    $dstDir = Join-Path $buildDir (Join-Path 'plugins' $sub)
-                    if (Test-Path $srcDir) {
-                        New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
-                        Get-ChildItem -LiteralPath $srcDir -Filter *.dll | ForEach-Object {
-                            Copy-Item -LiteralPath $_.FullName -Destination $dstDir -Force
-                        }
-                    }
                 }
             }
         }

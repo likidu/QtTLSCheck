@@ -2,7 +2,7 @@ TEMPLATE = app
 TARGET = QtTLSCheck
 
 # Qt 4.x modules
-QT += core gui network
+QT += core gui network declarative
 
 CONFIG -= debug_and_release
 CONFIG += debug
@@ -19,10 +19,13 @@ INCLUDEPATH += src
 
 SOURCES += \
     src/main.cpp \
-    src/TlsChecker.cpp \
-    src/MainWindow.cpp
+    src/TlsChecker.cpp
 
 HEADERS += \
-    src/TlsChecker.h \
-    src/MainWindow.h
+    src/TlsChecker.h
 
+RESOURCES += \
+    qml/qml.qrc
+
+OTHER_FILES += \
+    qml/MainPage.qml
