@@ -2,10 +2,11 @@ TEMPLATE = app
 TARGET = QtTLSCheck
 
 # Qt 4.x modules
-QT += core gui network
+QT += core gui network declarative
 
 CONFIG -= debug_and_release
 CONFIG += debug
+CONFIG(debug, debug|release) { CONFIG += console }
 
 # Place all build artifacts inside build directory
 DESTDIR = $$OUT_PWD
@@ -18,10 +19,13 @@ INCLUDEPATH += src
 
 SOURCES += \
     src/main.cpp \
-    src/TlsChecker.cpp \
-    src/MainWindow.cpp
+    src/TlsChecker.cpp
 
 HEADERS += \
-    src/TlsChecker.h \
-    src/MainWindow.h
+    src/TlsChecker.h
 
+RESOURCES += \
+    qml/qml.qrc
+
+OTHER_FILES += \
+    qml/MainPage.qml

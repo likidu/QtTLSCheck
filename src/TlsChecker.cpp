@@ -8,17 +8,32 @@ TlsChecker::TlsChecker(QObject *parent)
     : QObject(parent)
     , m_nam(0)
     , m_reply(0)
+    , m_running(false)
 {
     m_timeout.setSingleShot(true);
     connect(&m_timeout, SIGNAL(timeout()), this, SLOT(onTimeout()));
 }
 
+bool TlsChecker::isRunning() const
+{
+    return m_running;
+}
+
 void TlsChecker::logLine(const QString &s)
 {
-    // Print to stdout so Qt Creator's Application Output captures it
+    // Print to stdout so the console/QML host can capture progress
     QTextStream ts(stdout);
     ts << s << '\n';
     ts.flush();
+}
+
+void TlsChecker::setRunning(bool running)
+{
+    if (m_running == running)
+        return;
+
+    m_running = running;
+    emit runningChanged();
 }
 
 void TlsChecker::startCheck()
@@ -26,6 +41,8 @@ void TlsChecker::startCheck()
     if (m_reply) {
         return; // already running
     }
+
+    setRunning(true);
 
     // Basic SSL support introspection
     logLine(QString::fromLatin1("supportsSsl: %1")
@@ -42,6 +59,7 @@ void TlsChecker::startCheck()
 
     if (!QSslSocket::supportsSsl()) {
         logLine(QString::fromLatin1("ERROR: SSL not supported by QtNetwork at runtime."));
+        setRunning(false);
         emit finished(false, QString::fromLatin1("SSL not supported at runtime"));
         return;
     }
@@ -86,6 +104,8 @@ void TlsChecker::onReplyFinished()
         m_nam->deleteLater();
         m_nam = 0;
     }
+
+    setRunning(false);
     emit finished(ok, msg);
 }
 
@@ -100,9 +120,11 @@ void TlsChecker::onTimeout()
     m_reply = 0;
     const QString msg = QString::fromLatin1("ERROR: Timeout while waiting for response");
     logLine(msg);
-    emit finished(false, msg);
     if (m_nam) {
         m_nam->deleteLater();
         m_nam = 0;
     }
+
+    setRunning(false);
+    emit finished(false, msg);
 }
