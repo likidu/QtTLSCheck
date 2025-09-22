@@ -1,72 +1,71 @@
 # QtTLSCheck
 
-A minimal Qt 4.x application for Symbian/Qt Simulator that shows a centered button. Clicking it performs a TLS handshake + HTTP GET to a TLS 1.2–only endpoint and prints status to Qt Creator's Application Output.
+A minimal Qt 4.x application for the Symbian/Qt Simulator that presents a Belle-inspired QML interface. Tapping the action starts a TLS handshake + HTTP GET to a TLS 1.2-only endpoint and prints progress to the console/Qt Creator Application Output.
 
-This project is intended to run in the Qt Simulator (Qt 4.7.4, MinGW) and on Symbian Belle devices when built with the appropriate kit. For the Simulator, use the patched Qt 4.7.4 + OpenSSL 1.0.2u DLLs provided separately to enable TLS 1.1/1.2.
+The project targets the Qt Simulator (Qt 4.7.4, MinGW) and can also run on Symbian Belle when built with the appropriate kit. In the simulator we default to the stock Qt runtime shipped with the SDK, but you can stage patched Qt 4.7.4 + OpenSSL 1.0.2u DLLs from `deps/` when you need TLS 1.1/1.2 support without the simulator install.
 
 ## Layout
-- `QtTLSCheck.pro`: qmake project file
-- `src/`: source code (QtWidgets + QtNetwork)
-- `scripts/build-simulator.ps1`: build QtTLSCheck for the Qt Simulator
-- `scripts/test-tls.ps1`: build+run a tiny Debug console TLS checker (isolated harness)
-- `scripts/inspect-sim-runtime.ps1`: inspect a runtime dir for bitness/toolchain/config mismatches
-- `AGENTS.md`: PowerShell authoring guidelines used in this repo
-- `build-simulator/`: build output root (`debug`/`release` subfolders)
-- `deps/win32/qt4-openssl/{debug,release}/`: place patched Qt 4.7.4 + OpenSSL 1.0.2u DLLs here
+- `QtTLSCheck.pro`: qmake project
+- `src/`: C++ backend (`TlsChecker`, QML bootstrap)
+- `qml/`: QML UI and resource collection
+- `scripts/build-simulator.ps1`: build QtTLSCheck for the simulator (defaults to Qt runtime)
+- `scripts/test-tls.ps1`: debug console TLS checker
+- `scripts/inspect-sim-runtime.ps1`: inspect a runtime directory for mismatches
+- `AGENTS.md`: PowerShell authoring guidelines
+- `build-simulator/`: build output root (`debug`/`release`)
+- `deps/win32/qt4-openssl/{debug,release}/`: optional patched Qt + OpenSSL DLLs to stage when needed
 
 ## Prerequisites
-- Qt SDK with Qt Simulator (Qt 4.7.4, MinGW toolchain), typically under `C:\Symbian\QtSDK`.
-- Patched Qt 4.7.4 DLLs with OpenSSL 1.0.2u (TLS 1.1/1.2 enabled) and the OpenSSL DLLs.
-  - Debug (required): put `QtCored4.dll`, `QtNetworkd4.dll`, `libeay32.dll`, `ssleay32.dll` in `deps\win32\qt4-openssl\debug`.
-  - Release (optional): put `QtCore4.dll`, `QtNetwork4.dll`, `libeay32.dll`, `ssleay32.dll` in `deps\win32\qt4-openssl\release`.
-  - Intentionally do not stage `QtGui*` by default to avoid Simulator crashes from mismatched GUI plugins.
+- Qt SDK with Qt Simulator (Qt 4.7.4, MinGW), typically installed under `C:\Symbian\QtSDK`.
+- Optional: patched Qt 4.7.4 DLLs with OpenSSL 1.0.2u (TLS 1.1/1.2) and the matching OpenSSL DLLs.
+  - Debug: place `QtCored4.dll`, `QtNetworkd4.dll`, `libeay32.dll`, `ssleay32.dll` in `deps\win32\qt4-openssl\debug`.
+  - Release: place `QtCore4.dll`, `QtNetwork4.dll`, `libeay32.dll`, `ssleay32.dll` in `deps\win32\qt4-openssl\release`.
 
 ## Build (Qt Simulator)
-Run from a PowerShell prompt:
+From a PowerShell prompt in the repo root:
 
 ```powershell
-# From repo root (Debug)
-./scripts/build-simulator.ps1 `
-  -QtBin 'C:\Symbian\QtSDK\Simulator\Qt\mingw\bin' `
-  -MakeBin 'C:\Symbian\QtSDK\mingw\bin' `
-  -Config Debug
+# Default: build and use the simulator runtime
+pwsh scripts/build-simulator.ps1 -Config Debug
 
-# Clean build output (real clean) then build
-./scripts/build-simulator.ps1 -Config Debug -Clean
+# Clean then build
+pwsh scripts/build-simulator.ps1 -Config Debug -Clean
+
+# Stage patched DLLs from deps/win32 instead of using the runtime
+pwsh scripts/build-simulator.ps1 -Config Debug -UseDepDlls
 ```
 
 Notes:
-- Output goes to `build-simulator\debug\` (or `release\` if building Release).
-- The script runs qmake/mingw32-make and stages a minimal, matching runtime next to the exe:
-  - Debug: `QtCored4.dll`, `QtNetworkd4.dll`, `libeay32.dll`, `ssleay32.dll`
-  - Release: `QtCore4.dll`, `QtNetwork4.dll`, `libeay32.dll`, `ssleay32.dll`
-- It writes a `qt.conf` so Qt only searches for plugins locally; plugin copying is disabled by default. If needed, pass `-CopyPlugins` to copy `bearer` and `imageformats` from the SDK (ensure they match your Qt build).
-- If your Qt SDK is installed in a non-default location, adjust `-QtBin` and `-MakeBin` accordingly.
+- Output lands in `build-simulator\debug\` (or `release\` when `-Config Release`).
+- When `-UseDepDlls` is omitted the script wires PATH for the simulator?s Qt runtime and generates `QtTLSCheck.run.ps1` for launching.
+- When `-UseDepDlls` is provided the script copies the patched DLL set (QtCore/QtNetwork/OpenSSL) from `deps\win32\qt4-openssl\<config>` beside the exe. Missing files trigger warnings so you can verify your dep cache.
+- Adjust `-QtBin` / `-MakeBin` if your SDK lives outside the default paths.
 
 ## Run
-- In Qt Creator: open the project, select the Simulator kit, and run. Application Output will show TLS logs.
-- Or run `build-simulator\debug\QtTLSCheck.exe` directly; the script stages the required DLLs next to the exe.
+- **Simulator runtime (default):** run `pwsh -File build-simulator\debug\QtTLSCheck.run.ps1` (or the release variant). The launcher ensures PATH and plugin lookup point at the simulator install.
+- **Staged DLL mode:** run `build-simulator\debug\QtTLSCheck.exe` directly; the required DLLs were copied next to the executable.
+- In Qt Creator you can open the project, pick the Simulator kit, and launch as usual. The console will show the TLS log messages.
 
 ## TLS Check Details
-- Uses `QSslSocket` and `QNetworkAccessManager` to GET `https://tls-v1-2.badssl.com:1012/`.
-- Logs whether SSL is supported, prints OpenSSL version strings when available (Qt >= 4.8), ignores certificate errors for this probe, and reports success/failure.
+- Uses `QSslSocket` + `QNetworkAccessManager` to GET `https://tls-v1-2.badssl.com:1012/`.
+- Logs SSL availability, build/runtime OpenSSL version strings (Qt >= 4.8), ignores certificate errors for this probe, and reports success/failure to both stdout and the QML status label.
 
 ## TLS Test Harness (Debug only)
-- A minimal console app lives in `tests\tlscheck\` for quick verification outside GUI.
-- Build and run it with:
+- A minimal console harness lives under `tests\tlscheck\` for quick iteration.
+- Build and run with:
   ```powershell
-  ./scripts/test-tls.ps1           # Uses Qt SDK at C:\Symbian\QtSDK by default
-  ./scripts/test-tls.ps1 -DebugPlugins  # Verbose plugin loading logs
+  pwsh scripts/test-tls.ps1                     # Uses Qt SDK at C:\Symbian\QtSDK by default
+  pwsh scripts/test-tls.ps1 -DebugPlugins       # Verbose plugin loading
   ```
-- The script stages the Debug patched DLLs from `deps\win32\qt4-openssl\debug` and constrains plugin lookup via `qt.conf`.
+- The harness stages the Debug patched DLLs from `deps\win32\qt4-openssl\debug` and constrains plugin lookup via `qt.conf`.
 
 ## Inspect Runtime
-- To sanity-check staged binaries (bitness/toolchain/config), run:
+- Validate staged binaries (bitness/toolchain/config) with:
   ```powershell
-  ./scripts/inspect-sim-runtime.ps1 -Config Debug               # checks build-simulator\debug by default
-  ./scripts/inspect-sim-runtime.ps1 -Config Debug -OnlyNetSsl   # focus on QtNetwork + OpenSSL
-  ./scripts/inspect-sim-runtime.ps1 -Config Release -Dir 'build-simulator\release'
+  pwsh scripts/inspect-sim-runtime.ps1 -Config Debug               # checks build-simulator\debug by default
+  pwsh scripts/inspect-sim-runtime.ps1 -Config Debug -OnlyNetSsl   # focus on QtNetwork + OpenSSL
+  pwsh scripts/inspect-sim-runtime.ps1 -Config Release -Dir 'build-simulator\release'
   ```
 
 ## Symbian Device Build
-- Open in Qt Creator, select a Symbian Belle kit, and build/deploy as usual. The UI is a simple QWidget-based layout with a single button and status label.
+- Open in Qt Creator, choose a Symbian Belle kit, and build/deploy as needed. The UI is delivered via QML, backed by the same `TlsChecker` service logic used in the simulator.

@@ -3,8 +3,8 @@ param(
     [string]$MakeBin = 'C:\Symbian\QtSDK\mingw\bin',
     [ValidateSet('Debug','Release')][string]$Config = 'Debug',
     [switch]$Clean,
-    # Use Qt Simulator runtime files directly without staging them into the build directory.
-    [switch]$UseQtRuntime
+    # When set, stage patched DLLs from deps/win32 instead of relying on the simulator runtime.
+    [switch]$UseDepDlls
 )
 
 Set-StrictMode -Version Latest
@@ -68,40 +68,8 @@ try {
     & $make -j $env:NUMBER_OF_PROCESSORS | Write-Host
     if ($LASTEXITCODE -ne 0) { throw "mingw32-make failed with exit code $LASTEXITCODE" }
 
-    if (-not $UseQtRuntime) {
-        # Copy patched Qt + OpenSSL DLLs next to the built exe so they are used at runtime
-        $depsRoot = Join-Path $root 'deps\win32\qt4-openssl'
-        $cfgDir = if ($Config -ieq 'Release') { 'release' } else { 'debug' }
-        $deps = Join-Path $depsRoot $cfgDir
-        if (Test-Path $deps) {
-            Write-Info ("Staging patched {0} DLLs from {1}" -f $Config, $deps)
-            # Minimal, stable set: QtCore + QtNetwork + OpenSSL
-            $qtDbgBase = @('QtCored4.dll','QtNetworkd4.dll')
-            $qtRelBase = @('QtCore4.dll','QtNetwork4.dll')
-            $openssl = @('libeay32.dll','ssleay32.dll')
-            $names = if ($Config -ieq 'Release') { $qtRelBase + $openssl } else { $qtDbgBase + $openssl }
-            foreach ($n in $names) {
-                $src = Join-Path $deps $n
-                if (Test-Path $src) {
-                    Copy-Item -LiteralPath $src -Destination $buildDir -Force
-                    Write-Info "  + $n"
-                } else {
-                    Write-Warn "  - Missing in deps: $n"
-                }
-            }
-        } else {
-            Write-Warn ("Deps folder not found at {0}. Place your patched Qt 4.7.4 + OpenSSL 1.0.2u DLLs there." -f $deps)
-            # Fallback: copy core Qt DLLs from QtBin so the app can still run (without TLS 1.2)
-            $fallback = if ($Config -ieq 'Release') { @('QtCore4.dll','QtNetwork4.dll') } else { @('QtCored4.dll','QtNetworkd4.dll') }
-            foreach ($dll in $fallback) {
-                $srcDll = Join-Path $QtBin $dll
-                if (Test-Path $srcDll) {
-                    Copy-Item -LiteralPath $srcDll -Destination $buildDir -Force
-                }
-            }
-        }
-    } else {
-        Write-Info ("Skipping staging of Qt runtime files; relying on simulator runtime from {0}" -f $QtBin)
+    if (-not $UseDepDlls) {
+        Write-Info ("Using simulator runtime from {0}; no DLL staging" -f $QtBin)
 
         $launcher = Join-Path $buildDir 'QtTLSCheck.run.ps1'
         $legacyLauncher = Join-Path $buildDir 'QtTLSCheck.run.cmd'
@@ -124,12 +92,14 @@ try {
             ('[Environment]::SetEnvironmentVariable(''Path'', $env:PATH, ''Process'')')
         )
 
-        $launcherLines += @(
-            ('if (Test-Path -LiteralPath ''{0}'') {{' -f $qtPluginsDir)
-            ('    $env:QT_PLUGIN_PATH = ''{0}''' -f $qtPluginsDir)
-            ('    [Environment]::SetEnvironmentVariable(''QT_PLUGIN_PATH'', $env:QT_PLUGIN_PATH, ''Process'')')
-            '}'
-        )
+        if (Test-Path $qtPluginsDir) {
+            $launcherLines += @(
+                ('if (Test-Path -LiteralPath ''{0}'') {{' -f $qtPluginsDir)
+                ('    $env:QT_PLUGIN_PATH = ''{0}''' -f $qtPluginsDir)
+                ('    [Environment]::SetEnvironmentVariable(''QT_PLUGIN_PATH'', $env:QT_PLUGIN_PATH, ''Process'')')
+                '}'
+            )
+        }
 
         $launcherLines += @(
             '$argsToPass = if ($ExtraArgs) { $ExtraArgs } else { @() }'
@@ -141,6 +111,37 @@ try {
 
         Set-Content -LiteralPath $launcher -Value ($launcherLines -join "`r`n") -Encoding ASCII
         Write-Info ("Launcher created at {0}. Run it with pwsh to launch using the simulator runtime." -f $launcher)
+    } else {
+        Write-Info "Staging patched Qt/OpenSSL DLLs into build output"
+
+        $depsRoot = Join-Path $root 'deps\win32\qt4-openssl'
+        $cfgDir = if ($Config -ieq 'Release') { 'release' } else { 'debug' }
+        $deps = Join-Path $depsRoot $cfgDir
+        if (Test-Path $deps) {
+            Write-Info ("Using dependencies from {0}" -f $deps)
+            $qtDbgBase = @('QtCored4.dll','QtNetworkd4.dll')
+            $qtRelBase = @('QtCore4.dll','QtNetwork4.dll')
+            $openssl = @('libeay32.dll','ssleay32.dll')
+            $names = if ($Config -ieq 'Release') { $qtRelBase + $openssl } else { $qtDbgBase + $openssl }
+            foreach ($n in $names) {
+                $src = Join-Path $deps $n
+                if (Test-Path $src) {
+                    Copy-Item -LiteralPath $src -Destination $buildDir -Force
+                    Write-Info "  + $n"
+                } else {
+                    Write-Warn "  - Missing in deps: $n"
+                }
+            }
+        } else {
+            Write-Warn ("Deps folder not found at {0}. Place your patched Qt 4.7.4 + OpenSSL 1.0.2u DLLs there." -f $deps)
+            $fallback = if ($Config -ieq 'Release') { @('QtCore4.dll','QtNetwork4.dll') } else { @('QtCored4.dll','QtNetworkd4.dll') }
+            foreach ($dll in $fallback) {
+                $srcDll = Join-Path $QtBin $dll
+                if (Test-Path $srcDll) {
+                    Copy-Item -LiteralPath $srcDll -Destination $buildDir -Force
+                }
+            }
+        }
     }
 
     $exe = Join-Path $buildDir 'QtTLSCheck.exe'
